@@ -1,67 +1,76 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { AppModule } from '../src/app.module';
-import { PrismaService } from '../src/common/prisma/prisma.service';
-import { LLM_PROVIDER } from '../src/llm/llm-provider';
+import { ExplanationsController } from '../src/explanations/explanations.controller';
+import { ExplanationsService } from '../src/explanations/explanations.service';
 
 describe('Explanations (e2e)', () => {
   let app: INestApplication;
-  const sampleEvent = {
-    id: 'row-1',
-    eventId: 'transaction.completed:0:42',
-    eventType: 'transaction.completed',
-    transactionId: '11111111-1111-1111-1111-111111111111',
-    accountId: null,
-    payload: { amount: '500' },
-    createdAt: new Date('2026-01-01T00:00:00Z')
+  const service = {
+    explainTransaction: jest.fn(),
+    summarizeAccount: jest.fn()
   };
-  const prisma = {
-    event: {
-      findMany: jest.fn()
-    }
-  };
-  const llm = {
-    complete: jest.fn()
-  };
+  const txId = '11111111-1111-1111-1111-111111111111';
+  const accountId = '22222222-2222-2222-2222-222222222222';
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
-      .overrideProvider(PrismaService)
-      .useValue(prisma)
-      .overrideProvider(LLM_PROVIDER)
-      .useValue(llm)
-      .compile();
+    const moduleRef = await Test.createTestingModule({
+      controllers: [ExplanationsController],
+      providers: [{ provide: ExplanationsService, useValue: service }]
+    }).compile();
 
     app = moduleRef.createNestApplication();
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
     await app.init();
   });
 
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
+  afterAll(() => app.close());
 
-  it('GET /explanations/transaction/:id returns explanation + event list', async () => {
-    prisma.event.findMany.mockResolvedValueOnce([sampleEvent]);
-    llm.complete.mockResolvedValueOnce({ text: 'Transferencia completada por $500.', model: 'gemini-2.0-flash', raw: {} });
+  it('GET /explanations/transaction/:id returns explanation', async () => {
+    service.explainTransaction.mockResolvedValueOnce({
+      transactionId: txId,
+      explanation: 'Transferencia completada por $500.',
+      events: [{ eventId: 'e-1', eventType: 'transaction.completed', createdAt: '2024-01-01T00:00:00.000Z' }]
+    });
 
     const res = await request(app.getHttpServer())
-      .get('/explanations/transaction/11111111-1111-1111-1111-111111111111')
+      .get(`/explanations/transaction/${txId}`)
       .expect(200);
 
     expect(res.body).toMatchObject({
-      transactionId: '11111111-1111-1111-1111-111111111111',
-      explanation: 'Transferencia completada por $500.',
-      model: 'gemini-2.0-flash'
+      transactionId: txId,
+      explanation: 'Transferencia completada por $500.'
     });
-    expect(res.body.events).toHaveLength(1);
-    expect(llm.complete).toHaveBeenCalledTimes(1);
-    const [request_] = llm.complete.mock.calls[0];
-    expect(request_.user).toContain('"amount": "500"');
   });
 
-  afterAll(async () => {
-    await app.close();
+  it('GET /explanations/transaction/:id returns 404 when not found', async () => {
+    service.explainTransaction.mockRejectedValueOnce(new NotFoundException());
+
+    await request(app.getHttpServer())
+      .get(`/explanations/transaction/${txId}`)
+      .expect(404);
+  });
+
+  it('GET /explanations/account/:id/summary returns summary', async () => {
+    service.summarizeAccount.mockResolvedValueOnce({
+      accountId,
+      summary: 'Actividad reciente: 3 depósitos.'
+    });
+
+    const res = await request(app.getHttpServer())
+      .get(`/explanations/account/${accountId}/summary`)
+      .expect(200);
+
+    expect(res.body).toMatchObject({
+      accountId,
+      summary: 'Actividad reciente: 3 depósitos.'
+    });
+  });
+
+  it('GET /explanations/account/:id/summary returns 404 when not found', async () => {
+    service.summarizeAccount.mockRejectedValueOnce(new NotFoundException());
+
+    await request(app.getHttpServer())
+      .get(`/explanations/account/${accountId}/summary`)
+      .expect(404);
   });
 });

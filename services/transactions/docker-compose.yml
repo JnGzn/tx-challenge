@@ -1,0 +1,48 @@
+name: arkano-transactions
+
+networks:
+  arkano-net:
+    external: true
+    name: arkano-net-1
+
+volumes:
+  pg-transactions-data:
+
+services:
+  postgres-transactions:
+    image: postgres:16-alpine
+    container_name: postgres-transactions
+    networks: [arkano-net]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: transactions
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg-transactions-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d transactions"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  transactions:
+    build:
+      context: .
+    container_name: transactions
+    networks: [arkano-net]
+    restart: unless-stopped
+    depends_on:
+      postgres-transactions:
+        condition: service_healthy
+    environment:
+      HTTP_PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres-transactions:5432/transactions?schema=public
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: transactions-service
+      KAFKA_GROUP_ID: transactions-consumer
+    command: ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+    ports:
+      - "3002:3000"

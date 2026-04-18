@@ -1,0 +1,50 @@
+name: arkano-llm
+
+networks:
+  arkano-net:
+    external: true
+    name: arkano-net-1
+
+volumes:
+  pg-llm-data:
+
+services:
+  postgres-llm:
+    image: postgres:16-alpine
+    container_name: postgres-llm
+    networks: [arkano-net]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: llm
+    ports:
+      - "5434:5432"
+    volumes:
+      - pg-llm-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d llm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  llm:
+    build:
+      context: .
+    container_name: llm
+    networks: [arkano-net]
+    restart: unless-stopped
+    depends_on:
+      postgres-llm:
+        condition: service_healthy
+    environment:
+      HTTP_PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres-llm:5432/llm?schema=public
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: llm-service
+      KAFKA_GROUP_ID: llm-consumer
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY is required}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+    command: ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+    ports:
+      - "3003:3000"

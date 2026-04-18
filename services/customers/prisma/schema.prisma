@@ -1,0 +1,41 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Client {
+  id        String    @id @default(uuid())
+  name      String
+  email     String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  accounts  Account[]
+
+  @@map("clients")
+}
+
+model Account {
+  id        String   @id @default(uuid())
+  number    String   @unique
+  balance   Decimal  @default(0) @db.Decimal(20, 2)
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+  @@map("accounts")
+}
+
+model ProcessedEvent {
+  id          String   @id
+  topic       String
+  processedAt DateTime @default(now())
+
+  @@index([topic])
+  @@map("processed_events")
+}

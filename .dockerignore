@@ -1,0 +1,61 @@
+# Dependencias — se reinstalan dentro del build
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Build local — la imagen compila desde src
+dist/
+**/dist/
+build/
+**/build/
+*.tsbuildinfo
+
+# Tests / coverage — no van al runtime
+coverage/
+**/coverage/
+.nyc_output/
+**/test/
+**/*.spec.ts
+**/*.e2e-spec.ts
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Variables de entorno — se inyectan por compose, no quedan en la imagen
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Docker
+docker-compose*.yml
+.dockerignore
+**/.dockerignore
+Dockerfile*
+
+# Documentación / markdown
+*.md
+docs/
+
+# Claude Code
+.claude/
+**/.claude/
+
+# IDE / editores / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Prisma — DB locales de desarrollo
+**/prisma/*.db
+**/prisma/*.db-journal

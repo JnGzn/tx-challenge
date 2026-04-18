@@ -1,0 +1,72 @@
+name: arkano-infra
+
+networks:
+  arkano-net:
+    name: arkano-net-1
+    driver: bridge
+
+volumes:
+  kafka-data:
+
+services:
+  kafka:
+    image: apache/kafka:4.1.2
+    container_name: kafka
+    hostname: kafka
+    networks: [arkano-net]
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: 0
+      KAFKA_PROCESS_ROLES: controller,broker
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,PLAINTEXT_HOST://:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  kafka-init:
+    image: apache/kafka:4.1.2
+    container_name: kafka-init
+    networks: [arkano-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        BROKER=kafka:9092
+        PARTITIONS=6
+        RF=1
+        topics=(client.created account.created balance.updated transaction.requested transaction.completed transaction.rejected)
+        for t in "$${topics[@]}"; do
+          echo "Creando tópico $$t"
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server $$BROKER \
+            --create --if-not-exists --topic $$t \
+            --partitions $$PARTITIONS --replication-factor $$RF \
+            --config retention.ms=1209600000
+          echo "Creando tópico $$t.dlq"
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server $$BROKER \
+            --create --if-not-exists --topic $$t.dlq \
+            --partitions $$PARTITIONS --replication-factor $$RF \
+            --config retention.ms=2592000000
+        done
+        echo "Tópicos actuales:"
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server $$BROKER --list
+    restart: "no"
